@@ -1,0 +1,17 @@
+Cashiers Office: 
+Mean student wait: 0 tick(s)
+Mean window idle time: 16 tick(s)
+Longest window idle time: 18 tick(s)
+Longest student wait time 0 tick(s)
+Financial Aid Office: 
+Mean student wait: 2 tick(s)
+Mean window idle time: 1 tick(s)
+Longest window idle time: 1 tick(s)
+Longest student wait time 3 tick(s)
+Registrars Office: 
+Mean student wait: 0 tick(s)
+Mean window idle time: 11 tick(s)
+Longest window idle time: 14 tick(s)
+Longest student wait time 0 tick(s)
+Number of students waiting over 10 minutes across all offices: 0 students
+Number of windows idle for over 5 minutes across all offices: 5 offices
