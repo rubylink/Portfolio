@@ -1,0 +1,280 @@
+---
+title: "Problem Set 3"
+author: "Ruby Link"
+subtitle: MGSC 310 Problem Set Template
+output:
+  html_document:
+    df_print: paged
+  html_notebook: default
+---
+
+```{r setup, include=FALSE}
+
+
+library(knitr)
+
+# As long as you are working in a Rstudio Project file, you shouldn't need to 'hard code' directories like this 
+# change to your own working directory
+#knitr::opts_knit$set(root.dir = 'C:/Users/doosti/Desktop/MGSC_310')
+
+# set seed to your own favorite number
+set.seed(310)
+options(width=70)
+# if you want to prevent scientific format for numbers use this:
+options(scipen=99)
+
+# general rchunk code options
+opts_chunk$set(tidy.opts=list(width.wrap=50),tidy=FALSE, size = "vsmall")
+opts_chunk$set(message = FALSE,
+               warning = FALSE,
+               cache = TRUE,
+               autodep = TRUE,
+               cache.comments = FALSE,
+               collapse = TRUE,
+               fig.width = 5,  
+               fig.height = 4,
+               fig.align='center')
+
+```
+
+```{r setup_2}
+
+# load all your libraries here
+library('tidyverse')
+library('forcats')
+library(plotROC)
+library(yardstick)
+library(ISLR)
+library(rsample)
+# note, do not run install.packages() inside a code chunk. install them in the console outside of a code chunk. 
+
+```
+
+
+a) 
+
+```{r}
+
+movies <- read.csv("datasets/IMDB_movies.csv")
+
+movies_clean <- 
+  movies %>% 
+  mutate(budgetM = budget/1000000,
+         grossM = gross/1000000,
+         profitM = grossM - budgetM,
+         ROI = profitM/budgetM,
+         blockbuster = ifelse(profitM > 100, 1,0) %>% factor(., levels = c("0","1")),
+         blockbuster_numeric = ifelse(profitM > 100, 1,0), 
+         genre_main = as.factor(unlist(map(strsplit(as.character(movies$genres),"\\|"),1))) %>% fct_lump(12),
+         rating_simple = fct_lump(content_rating, n = 6)
+         ) %>%
+  filter(budget < 400000000, 
+         content_rating != "", 
+         content_rating != "Not Rated",
+         !is.na(gross)) %>% 
+  mutate(rating_simple = rating_simple %>% fct_drop()) %>% 
+  rename(director = director_name, 
+         title = movie_title,
+         year = title_year) %>% 
+  select(-c(actor_1_name, actor_2_name,actor_1_facebook_likes, actor_2_facebook_likes, 
+         budget, gross, aspect_ratio, num_voted_users,num_user_for_reviews)) %>% 
+  relocate(title, year, country, director, budgetM, grossM, profitM, ROI, imdb_score, genre_main, rating_simple, language, duration) %>% 
+  distinct()
+
+movies_clean %>% glimpse()
+```
+
+
+
+b)
+
+```{r}
+
+set.seed(310)
+movies_split <- initial_split(movies_clean, prop = 0.7)
+movies_train <- training(movies_split)
+movies_test <- testing(movies_split)
+
+movies_split %>% dim()
+```
+
+c)
+
+```{r}
+movies_logit1 <- glm(blockbuster ~ imdb_score + budgetM + year + 
+                     director_facebook_likes + genre_main,
+                     data = movies_train,
+                     family = binomial)
+
+summary(movies_logit1)
+```
+d)
+
+```{r}
+exp(movies_logit1$coefficients)
+odds_ratio_crime = 0.2504563823396 
+interp1 = 1-0.2504563823396 
+
+print(odds_ratio_crime)
+print(interp1)
+
+#Movies that are in the genre_main crime category are 74.95% less likely to be a blockbuster compared to the baseline
+
+```
+e)
+
+```{r} 
+odds_ratio_imdb = 3.3043653695406 
+interp2 = 1 - 3.3043653695406 
+
+print(odds_ratio_imdb)
+print(interp2)
+
+#for every one unit increase in imdb_score, a movie is 230% more likely to be a blockbuster. Although the odds ratio is negative, the values is greater than one so it would not decrease the likelihood of being a blockbuster it would increase it. 
+
+```
+
+f)
+
+```{r}
+scores_train <- predict(movies_logit1, type = "response", newdata = movies_train)
+head(scores_train)
+
+scores_test <- predict(movies_logit1, type = "response", newdata = movies_test)
+head(scores_test)
+```
+
+
+g)
+
+```{r}
+
+results_train <- data.frame(
+  true = movies_train$blockbuster_numeric, 
+  score = scores_train
+)
+results_train %>% glimpse()
+
+results_test <- data.frame(
+  true = movies_test$blockbuster_numeric, 
+  score = scores_test
+)
+results_test %>% glimpse()
+
+
+roc_train <- ggplot(results_train, aes(m=score,d=true)) +
+  geom_roc(cutoffs.at = c(0.9,0.7,0.5,0.3,0.1,0.05))+
+  labs(title = "ROC for Train",
+       x = "FPR",
+       y = "TPR")
+
+print(roc_train)
+
+
+roc_test <- ggplot(results_test, aes(m=score,d=true)) +
+  geom_roc(cutoffs.at = c(0.9,0.7,0.5,0.3,0.1,0.05))+
+  labs(title = "ROC for Test",
+       x = "FPR",
+       y = "TPR")
+
+print(roc_test)
+
+
+```
+
+h)
+
+```{r}
+#I would choose 0.1 as a cutoff because the TPR is just over 50% and the FPR is still fairly low (about 10% maybe). If I were to pick a lower cutoff, the TPR would be less that 50%, aka worse than a random drawing, and if I increased it, the TPR would increase but so would the FPR. 
+
+```
+
+i)
+
+```{r}
+
+predict_train <- ifelse(scores_train > 0.1, "1", "0")
+table(predict_train)
+
+predict_test <- ifelse(scores_test > 0.1, "1", "0")
+table(predict_test)
+
+```
+
+j)
+
+```{r}
+
+df_train <- data.frame(
+  trueFact = movies_train$blockbuster,
+  pred = factor(predict_train)
+)
+
+df_test <- data.frame(
+  trueFact = movies_test$blockbuster,
+  pred = factor(predict_test)
+)
+
+cm_train <- conf_mat(df_train, 
+               truth = trueFact,
+               estimate = pred)
+print(cm_train)
+
+cm_test <- conf_mat(df_test, 
+               truth = trueFact,
+               estimate = pred)
+print(cm_test)
+
+
+
+```
+k)
+
+```{r}
+#Train
+TN1 <- 2156
+TP1 <- 96
+FN1 <- 60
+FP1 <- 315
+
+acc1 = (TN1 + TP1) / (TN1 + TP1 + FN1 +FP1)
+print(acc1)
+
+sen1 = TP1/ (TP1 + FN1)
+print(sen1)
+
+spe1 = TN1 / (TN1 + FP1)
+print(spe1)
+
+#Test
+TN2 <- 948
+TP2 <- 33
+FN2 <- 29
+FP2 <- 117
+
+acc2 = (TN2 + TP2) / (TN2 + TP2 + FN2 +FP2)
+print(acc2)
+
+sen2 = TP2/ (TP2 + FN2)
+print(sen2)
+
+spe2 = TN2 / (TN2 + FP2)
+print(spe2)
+
+
+```
+l)
+
+```{r}
+calc_auc(roc_train)
+calc_auc(roc_test)
+
+
+#The model seems to be doing pretty well with a training auc score of .84 and a testing of .83. This is pretty good considering that a perfect model would have an auc score of 1. I wouldn't say that the model is too overfit because the accuracy and specificity score are very similar between the train and test data set. However, the sensitivity is pretty low, with the test sensitivity being much lower. This is due to severe class imbalance with the models tendency to predict way more negatives which implies some level of overfitting. It does a very good job a classifying negative cases, but a pretty poor job for positives because the model is so negative heavy. We could fix this by changing the classification threshold to classify more positves, downsampling some of the overbearing negative cases, or upsampling the positives so that a model has more variety of data to train on. We could use a combination of these options as well. 
+```
+
+
+
+
+
+
