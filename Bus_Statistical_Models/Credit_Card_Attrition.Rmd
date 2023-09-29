@@ -1,0 +1,427 @@
+---
+title: "Final Project"
+author: "Ruby Link, Ellie Strande, Jonathan Vergonio"
+output:
+  html_document:
+    df_print: paged
+  html_notebook: default
+---
+
+```{r setup, include=FALSE}
+
+
+library(knitr)
+
+# As long as you are working in a Rstudio Project file, you shouldn't need to 'hard code' directories like this 
+# change to your own working directory
+#knitr::opts_knit$set(root.dir = 'C:/Users/doosti/Desktop/MGSC_310')
+
+# set seed to your own favorite number
+set.seed(310)
+options(width=70)
+# if you want to prevent scientific format for numbers use this:
+options(scipen=99)
+
+# general rchunk code options
+opts_chunk$set(tidy.opts=list(width.wrap=50),tidy=FALSE, size = "vsmall")
+opts_chunk$set(message = FALSE,
+               warning = FALSE,
+               cache = TRUE,
+               autodep = TRUE,
+               cache.comments = FALSE,
+               collapse = TRUE,
+               fig.width = 5,  
+               fig.height = 4,
+               fig.align='center')
+
+```
+
+```{r setup_2}
+
+# load all your libraries here
+library(tidyverse)
+library(tree)
+library(ISLR)
+library(rsample)
+library(caret)
+library(randomForestExplainer)
+library(randomForest)
+library(ggcorrplot)
+library(plotROC)
+library(yardstick)
+library(factoextra)
+
+
+
+
+```
+Data Exploration
+```{r}
+bank <- read.csv("datasets/BankChurners.csv")
+bank %>% summary()
+bank %>% names()
+
+
+#Distributions
+ggplot(bank, aes(x= Customer_Age)) + geom_histogram(fill = 'blue') + 
+  labs(x= "Customer Age", title="Histogram of Customer Age")
+
+ggplot(bank, aes(x= Months_on_book)) + geom_histogram(fill = 'blue') + 
+  labs(x= "Months_on_book", title="Histogram of Months on book")
+
+ggplot(bank, aes(x= Total_Trans_Ct)) + geom_histogram(fill = 'blue') + 
+  labs(x= "Total_Trans_Ct", title="Histogram of Total Transactions ")
+
+#transformation
+ggplot(bank, aes(x= Credit_Limit)) + geom_histogram(fill = 'blue') + 
+  labs(x= "Credit_Limit", title="Histogram of Credit Limit")
+
+ggplot(bank, aes(x= Gender)) + geom_bar() + 
+  labs(x= "Gender", title="Gender")
+
+ggplot(bank, aes(x= Income_Category)) + geom_bar() + 
+  labs(x= "Income_Category", title="Income")
+
+
+
+```
+Data Cleaning
+```{r}
+
+bank_clean <- bank %>% 
+  mutate(Gender = factor(Gender),
+         Income_Category = factor(Income_Category),
+         Attrition_Flag = ifelse(Attrition_Flag == "Attrited Customer", 1, 0),
+         Attrition_Flag_num = as.numeric(Attrition_Flag),
+         Attrition_Flag = factor(Attrition_Flag),
+         Credit_Limit = log(Credit_Limit + 1)) %>% 
+  filter(Income_Category != "Unknown") %>% 
+  select(-c(CLIENTNUM, Dependent_count, Card_Category, Total_Relationship_Count, Contacts_Count_12_mon, Total_Amt_Chng_Q4_Q1,
+            Total_Ct_Chng_Q4_Q1,
+            Marital_Status,
+            Education_Level,
+            Avg_Open_To_Buy,
+            Avg_Utilization_Ratio,
+            Total_Trans_Amt,
+            Naive_Bayes_Classifier_Attrition_Flag_Card_Category_Contacts_Count_12_mon_Dependent_count_Education_Level_Months_Inactive_12_mon_1,
+            Naive_Bayes_Classifier_Attrition_Flag_Card_Category_Contacts_Count_12_mon_Dependent_count_Education_Level_Months_Inactive_12_mon_2)) 
+
+bank_clean %>% glimpse()
+
+#transformation
+ggplot(bank_clean, aes(x= Credit_Limit)) + geom_histogram(fill = 'blue') + 
+  labs(x= "Credit_Limit", title="Histogram of Credit Limit Log")
+
+
+```
+Model 1 - Logistic Regression
+```{r}
+
+#Train test split
+set.seed(310)
+bank_split <- initial_split(bank_clean, prop = 0.8)
+bank_train <- training(bank_split)
+bank_test <- testing(bank_split)
+
+bank_logit <- glm(Attrition_Flag ~ Gender + Months_on_book + 
+                    Credit_Limit+Total_Trans_Ct + Customer_Age +
+                    Income_Category + Months_Inactive_12_mon +
+                    Total_Revolving_Bal,
+                  data = bank_train,
+                  family = binomial)
+
+summary(bank_logit)
+
+#Exponentiating Coefficients and finding likihood for Total_trans_ct
+exp(bank_logit$coefficients)
+(TranCountLikely = 1-0.9414152)
+
+```
+Performance
+```{r}
+#Scores
+scores_train <- predict(bank_logit, type = "response", newdata = bank_train)
+scores_test <- predict(bank_logit, type = "response", newdata = bank_test)
+#Precitions
+predict_train1 <- ifelse(scores_train > 0.5, "1", "0")
+predict_test1 <- ifelse(scores_test > 0.5, "1", "0")
+
+results_train <- data.frame(
+  true = bank_train$Attrition_Flag_num,
+  true_fact = factor(bank_train$Attrition_Flag), 
+  score = scores_train,
+  pred = factor(predict_train1)
+)
+results_train %>% glimpse()
+
+results_test <- data.frame(
+  true = bank_test$Attrition_Flag_num,
+  true_fact = factor(bank_test$Attrition_Flag), 
+  score = scores_test,
+  pred = factor(predict_test1)
+)
+results_test %>% glimpse()
+
+#Train Confusion Matrix
+cm_train1 <- conf_mat(results_train, 
+                     truth = true_fact,
+                     estimate = pred)
+print(cm_train1)
+#Test Confusion Matric
+cm_test1 <- conf_mat(results_test, 
+                    truth = true_fact,
+                    estimate = pred)
+print(cm_test1)
+
+#Train Metrics
+TN1 <- 5858
+TP1 <- 434
+FN1 <- 731
+FP1 <- 189
+
+acc1 = (TN1 + TP1) / (TN1 + TP1 + FN1 +FP1)
+print(acc1)
+
+sen1 = TP1/ (TP1 + FN1)
+print(sen1)
+
+spe1 = TN1 / (TN1 + FP1)
+print(spe1)
+
+#Test Metrics
+TN2 <- 1476
+TP2 <- 108
+FN2 <- 167
+FP2 <- 52
+
+acc2 = (TN2 + TP2) / (TN2 + TP2 + FN2 +FP2)
+print(acc2)
+
+sen2 = TP2/ (TP2 + FN2)
+print(sen2)
+
+spe2 = TN2 / (TN2 + FP2)
+print(spe2)
+
+
+```
+Model Tuning
+```{r}
+#ROC Curve to find the best cutoff
+roc_train <- ggplot(results_train, aes(m=score,d=true)) +
+  geom_roc(cutoffs.at = c(0.9,0.7,0.5,0.3,0.2,0.1,0.05))+
+  labs(title = "ROC for Train",
+       x = "FPR",
+       y = "TPR")
+
+print(roc_train)
+
+roc_test <- ggplot(results_test, aes(m=score,d=true)) +
+  geom_roc(cutoffs.at = c(0.9,0.7,0.5,0.3,0.2,0.1,0.05))+
+  labs(title = "ROC for Test",
+       x = "FPR",
+       y = "TPR")
+
+print(roc_test)
+
+```
+Performance After Tune
+```{r}
+predict_train2 <- ifelse(scores_train > 0.2, "1", "0")
+predict_test2 <- ifelse(scores_test > 0.2, "1", "0")
+
+
+df_train <- data.frame(
+  trueFact = bank_train$Attrition_Flag,
+  pred = factor(predict_train2)
+)
+
+df_test <- data.frame(
+  trueFact = bank_test$Attrition_Flag,
+  pred = factor(predict_test2)
+)
+
+cm_train2 <- conf_mat(df_train, 
+                     truth = trueFact,
+                     estimate = pred)
+print(cm_train2)
+
+cm_test2 <- conf_mat(df_test, 
+                    truth = trueFact,
+                    estimate = pred)
+print(cm_test2)
+
+
+TN3 <- 4889
+TP3 <- 842
+FN3 <- 323
+FP3 <- 1158
+
+acc3 = (TN3 + TP3) / (TN3 + TP3 + FN3 +FP3)
+print(acc3)
+
+sen3 = TP3/ (TP3 + FN3)
+print(sen3)
+
+spe3 = TN3 / (TN3 + FP3)
+print(spe3)
+
+#Test
+TN4 <- 1218
+TP4 <- 208
+FN4 <- 67
+FP4 <- 310
+
+acc4 = (TN4 + TP4) / (TN4 + TP4 + FN4 +FP4)
+print(acc4)
+
+sen4 = TP4/ (TP4 + FN4)
+print(sen4)
+
+spe4 = TN4 / (TN4 + FP4)
+print(spe4)
+
+
+```
+
+
+Model 2 - Decision Tree
+```{r}
+tree_bank <- tree(Attrition_Flag ~ Gender + Months_on_book + 
+                    Credit_Limit+Total_Trans_Ct + Customer_Age +
+                    Income_Category + Months_Inactive_12_mon +
+                    Total_Revolving_Bal,
+                  data = bank_train,
+                  control = tree.control(nobs = nrow(bank_train),
+                                         mindev = 0.005))
+plot(tree_bank)
+text(tree_bank, pretty = 0, cex=0.5) 
+
+```
+Pruning Tree
+```{r}
+cv.bank <- cv.tree(tree_bank, FUN=prune.misclass)
+# report the results
+print(cv.bank)
+#4 leaf nodes is the best number 
+plot(cv.bank$size, cv.bank$dev, type="b")
+
+bank_prunedtree <-prune.misclass(tree_bank, best = 4)
+plot(bank_prunedtree)
+text(bank_prunedtree)
+```
+Performance
+```{r}
+predicted_bank_train <- predict(bank_prunedtree, newdata = bank_train, type = 'class')
+table(predicted_bank_train, bank_train$Attrition_Flag)
+
+predicted_bank_test <- predict(bank_prunedtree, newdata = bank_test, type = 'class')
+table(predicted_bank_test, bank_test$Attrition_Flag)
+
+#Train
+TN1 <- 5885
+TP1 <- 555
+FN1 <- 610
+FP1 <- 162
+
+acc1 = (TN1 + TP1) / (TN1 + TP1 + FN1 +FP1)
+print(acc1)
+
+sen1 = TP1/ (TP1 + FN1)
+print(sen1)
+
+spe1 = TN1 / (TN1 + FP1)
+print(spe1)
+
+#Test
+TN2 <- 1493
+TP2 <- 137
+FN2 <- 138
+FP2 <- 35
+
+acc2 = (TN2 + TP2) / (TN2 + TP2 + FN2 +FP2)
+print(acc2)
+
+sen2 = TP2/ (TP2 + FN2)
+print(sen2)
+
+spe2 = TN2 / (TN2 + FP2)
+print(spe2)
+
+```
+
+Model 3 - Random Forest
+```{r}
+rf_bank_train <- randomForest(Attrition_Flag ~ Gender + Months_on_book + 
+                    Credit_Limit+Total_Trans_Ct + Customer_Age +
+                    Income_Category + Months_Inactive_12_mon +
+                    Total_Revolving_Bal,
+                           data = bank_train,
+                           ntree = 500, 
+                           mtry = 5,
+                           importance = TRUE,
+                         type = classification)
+
+print(rf_bank_train)
+plot(rf_bank_train)
+
+rf_bank_test <- randomForest(Attrition_Flag ~ Gender + Months_on_book + 
+                    Credit_Limit+Total_Trans_Ct + Customer_Age +
+                    Income_Category + Months_Inactive_12_mon +
+                    Total_Revolving_Bal,
+                              data = bank_test,
+                              ntree = 500, 
+                              mtry = 5,
+                              importance = TRUE,
+                              type = classification)
+
+print(rf_bank_test)
+plot(rf_bank_test)
+
+#ANALYZING ACCURACY: CM
+#NOTE** Scores will be slightly different each time model is run 
+
+#TRAIN -- Confusion Matrix:
+TN = 5835
+TP = 679
+FP = 486
+FN = 212
+
+#accuracy = 
+(TN + TP)/ (TN + TP + FP + FN)
+#0.901 Accuracy
+#--
+#sensitivity = (TP) / (TP + FN)
+(TP) / (TP + FN)
+#Sensitivity = 0.749
+#--
+#specificity = (TN) / (TN + FP)
+(TN) / (TN + FP)
+#Specificity - 0.923
+#--
+
+
+#TEST -- Confusion Matrix:
+TN = 1475
+TP = 165
+FP = 110
+FN = 53
+
+#accuracy = 
+(TN + TP)/ (TN + TP + FP + FN)
+#0.908 Accuracy
+#--
+#sensitivity = (TP) / (TP + FN)
+(TP) / (TP + FN)
+#Sensitivity = 0.752
+#--
+#specificity = (TN) / (TN + FP)
+(TN) / (TN + FP)
+#Specificity - 0.9299
+#--
+
+# plot min depth distribution
+plot_min_depth_distribution(rf_bank_train)
+
+```
+
