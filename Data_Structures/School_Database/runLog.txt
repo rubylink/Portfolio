@@ -1,0 +1,39 @@
+STUDENT DATABASE: 
+Student ID: 7
+Student Name: b
+Student Level: b
+Student Major: b
+Student GPA: 5.000000
+Advisor ID: 2
+_______________________
+Student ID: 8
+Student Name: i
+Student Level: i
+Student Major: i
+Student GPA: 1.000000
+Advisor ID: 3
+_______________________
+
+FACULTY DATABASE: 
+Faculty ID: 1
+Faculty Name: 2
+Faculty Level: g
+Faculty Department: g
+Student advisee IDs: 
+NA
+___________________________
+Faculty ID: 2
+Faculty Name: r
+Faculty Level: r
+Faculty Department: r
+Student advisee IDs: 
+7
+___________________________
+Faculty ID: 3
+Faculty Name: e
+Faculty Level: e
+Faculty Department: e
+Student advisee IDs: 
+8
+___________________________
+
