@@ -1,0 +1,189 @@
+---
+title: "Problem Set 4"
+author: "Ruby Link"
+subtitle: MGSC 310 Problem Set Template
+output:
+  html_document:
+    df_print: paged
+  html_notebook: default
+---
+
+```{r setup, include=FALSE}
+
+
+library(knitr)
+
+# As long as you are working in a Rstudio Project file, you shouldn't need to 'hard code' directories like this 
+# change to your own working directory
+#knitr::opts_knit$set(root.dir = 'C:/Users/doosti/Desktop/MGSC_310')
+
+# set seed to your own favorite number
+set.seed(310)
+options(width=70)
+# if you want to prevent scientific format for numbers use this:
+options(scipen=99)
+
+# general rchunk code options
+opts_chunk$set(tidy.opts=list(width.wrap=50),tidy=FALSE, size = "vsmall")
+opts_chunk$set(message = FALSE,
+               warning = FALSE,
+               cache = TRUE,
+               autodep = TRUE,
+               cache.comments = FALSE,
+               collapse = TRUE,
+               fig.width = 5,  
+               fig.height = 4,
+               fig.align='center')
+
+```
+
+```{r setup_2}
+
+# load all your libraries here
+library('tidyverse')
+library(tree)
+library(rsample)
+library(ggridges)
+library(ggplot2)
+library(caret)
+library(randomForest)
+library(randomForestExplainer)
+
+
+
+# note, do not run install.packages() inside a code chunk. install them in the console outside of a code chunk. 
+
+```
+a)
+```{r}
+
+options(scipen=99)
+set.seed(310)
+
+movies <- read.csv("datasets/IMDB_movies.csv")
+
+movies_clean <- movies %>% 
+  filter(budget < 4e+08) %>% 
+  filter(content_rating != "", content_rating != "Not Rated", plot_keywords != "", !is.na(gross))
+
+movies_clean <- movies_clean %>% 
+  mutate(genre_main = unlist(map(strsplit(as.character(movies_clean$genres),"\\|"), 1)), 
+         plot_main = unlist(map(strsplit(as.character(movies_clean$plot_keywords), "\\|"), 1)), 
+         grossM = gross/1e+06, 
+         budgetM = budget/1e+06)
+
+movies_clean <- movies_clean %>% 
+  mutate(genre_main = fct_lump(genre_main,7), 
+         plot_first = fct_lump(plot_main, 20), 
+         content_rating = fct_lump(content_rating,4), 
+         country = fct_lump(country, 8), 
+         language = fct_lump(language, 4), 
+         cast_total_facebook_likes000s = cast_total_facebook_likes/1000) %>% 
+  drop_na()
+
+top_director <- movies_clean %>% 
+  group_by(director_name) %>% 
+  summarize(num_films = n()) %>% 
+  top_frac(0.1) %>% 
+  mutate(top_director = 1) %>% 
+  select(-num_films)
+
+movies_clean <- movies_clean %>% 
+  left_join(top_director, by = "director_name") %>% 
+  mutate(top_director = replace_na(top_director, 0)) %>% 
+  select(-c(director_name, actor_2_name, gross, genres, actor_1_name, movie_title, 
+            plot_keywords, budget, color, 
+            aspect_ratio, plot_main, actor_2_facebook_likes, 
+            color, num_critic_for_reviews, num_voted_users, num_user_for_reviews, 
+            actor_2_facebook_likes))
+
+set.seed(310)
+movies_split <- initial_split(movies_clean, prop=0.7)
+movies_train <- training(movies_split)
+movies_test <- testing(movies_split)
+
+```
+b)
+```{r}
+library(ggridges)
+
+ggplot(movies_clean, aes(x = grossM, y = plot_first, fill = grossM > 300)) + geom_density_ridges() + xlim(0, 500)
+
+#The word with the most blockbusters is Other. We can see that there are a significant amount of movies that reach over 300 million in this category. While small, it also looks like there might be a few blockbusters in the Battle category as well. 
+
+```
+c)
+```{r}
+movies_reg_tree <- tree(grossM ~ ., 
+                data = movies_train)
+```
+d)
+```{r}
+plot(movies_reg_tree)
+text(movies_reg_tree, digit = 2, pretty = 0, cex = .75)
+```
+e)
+```{r}
+#We see blockbusters on two leaf nodes, but result from the same split. The path follows where the budget is greater than 107.5, imdb_score is greater than 7.45, and then the budgetM is greater than 181.5. The final split occurs where the duration is either less than or greater than 168.9, but either way, the resulting prediction is greater than 300 (370 and 580). 
+
+#The "recipe for disaster", resulting in the lowest predicted grossM is when a movie's budget is less than 107.5, then less that 31.75, and the title_year is less than 1992.5, ending with a leaf node of value 22. 
+
+```
+f)
+```{r}
+predicted_movies_train <- predict(movies_reg_tree, newdata = movies_train)
+predicted_movies_test <- predict(movies_reg_tree, newdata = movies_test)
+
+RMSE(predicted_movies_train, movies_train$grossM)
+RMSE(predicted_movies_test, movies_test$grossM)
+
+```
+g)
+```{r}
+cv.movies <- cv.tree(movies_reg_tree)
+print(cv.movies)
+plot(cv.movies$size, cv.movies$dev, type = "b")
+
+#It looks like the best tree size is around 12 or 13. We dont need to prune the tree because as shown by the RMSE the tree doesn't look to be overfit because the train and the tests scores are almost identical. Also, the size of the tree is currently at 13 so pruning the tree wouldn't make a big difference, if any, in reducing the RMSE. 
+
+```
+h)
+```{r}
+bag_movies <- randomForest(grossM ~ .,
+                           data = movies_train, 
+                           ntree = 200, 
+                           mtry = 8, 
+                           importance = TRUE)
+
+# mtry is the number of random columns(variables) that are allowed to be chosen for each new model, which in this case, is 8. This number differentiates random forest with a bagging model because the bagging model will always use mtry = to the total number of variables. 
+
+```
+i)
+```{r}
+predicted_forest_train <- predict(bag_movies, newdata = movies_train)
+predicted_forest_test <- predict(bag_movies, newdata = movies_test)
+
+RMSE(predicted_forest_train, movies_train$grossM)
+RMSE(predicted_forest_test, movies_test$grossM)
+
+```
+j)
+```{r}
+importance(bag_movies) 
+
+varImpPlot(bag_movies)
+
+# The top two most important variables are budgetM and imdb_score. These variables have the highest increase in node purity and %IncMSE. 
+
+```
+k)
+```{r}
+plot_min_depth_distribution(bag_movies)
+
+#You can see that the most important variables from the last step also show to be the most important using this distribution. BudgetM's minimal depth is almost always equal to zero for each forest. This is telling because the most important/influential variable is the root of the tree and budgetM is almost always assigned the root. movie_facebook_likes and imdb_score are also routinely at or near the top of the tree. 
+```
+l)
+```{r}
+# I would say that the best model is the the regression tree. Although the regression tree has a higher RMSE (48.66 train, 48.93 test) the random forest model is very overfit. You can tell because the RMSE for the train data is very low (20.25) while the test data is much higher (40.26). So while it beneficial to have a lower RMSE, the random forest model doesn't do a good job of predicting out of sample data and for that reason, the regression tree model is better overall. 
+```
+
